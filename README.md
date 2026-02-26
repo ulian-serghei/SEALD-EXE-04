@@ -32,6 +32,7 @@ tests/
   test_crypto.py      Crypto roundtrip unit tests
   test_replay.py      Replay detection unit tests
   test_correlation.py Correlation window unit tests
+  test_aircraft_cli.py Aircraft CLI (--eph-keypair / --print-eph-pub) tests
 pyproject.toml
 README.md
 ```
@@ -70,9 +71,27 @@ seald-atc --gen-keypair --keypair atc_key.bin
 ```
 
 This creates `atc_key.bin` (64 raw bytes: private || public) and prints the
-public key hex on stdout.  Copy the printed hex for use in the next step.
+public key hex on stdout.
 
-### 4. Start the ATC node
+### 4. Get the aircraft ephemeral public key
+
+```bash
+seald-aircraft --eph-keypair aircraft_key.bin --print-eph-pub
+```
+
+This creates (or loads) `aircraft_key.bin` (64 raw bytes: private || public),
+prints the 32-byte public key as a hex string, and exits.  Copy the printed
+hex for use in the next step.
+
+### 5. Register the aircraft ephemeral key at the ATC (out-of-band)
+
+```bash
+seald-atc --keypair atc_key.bin \
+  --register-kid 0 \
+  --aircraft-eph-pub <hex from step 4>
+```
+
+### 6. Start the ATC node
 
 In a **first terminal**:
 
@@ -83,7 +102,7 @@ seald-atc --keypair atc_key.bin --log-level DEBUG
 The node binds to `127.0.0.1:30021` (CAT021-stub) and `127.0.0.1:30240`
 (CAT240) and waits for aircraft datagrams.
 
-### 5. Start the aircraft simulator
+### 7. Start the aircraft simulator
 
 In a **second terminal**:
 
@@ -92,39 +111,24 @@ seald-aircraft \
   --callsign BAW123 \
   --icao24 3C4A6B \
   --atc-pubkey atc_key.bin \
+  --eph-keypair aircraft_key.bin \
   --log-level DEBUG
 ```
 
-The aircraft generates an ephemeral X25519 keypair, derives the shared key
-against the ATC public key, and emits one CAT021-stub + one CAT240 datagram
-per second.
+The aircraft loads its persisted ephemeral X25519 keypair from
+`aircraft_key.bin`, derives the shared key against the ATC public key, and
+emits one CAT021-stub + one CAT240 datagram per second.
 
-### 6. Register the aircraft ephemeral key at the ATC (out-of-band)
+Once the aircraft ephemeral key was registered in step 5 you should see
+`CORRELATED` log lines in the ATC terminal.
 
-The aircraft prints its ephemeral public key hex at startup, e.g.:
-
-```
-Ephemeral public key (share with ATC if needed): a1b2c3...
-```
-
-Register it at the ATC (while it is running, stop with Ctrl-C first or use
-`--register-kid` at startup):
-
-```bash
-seald-atc --keypair atc_key.bin \
-  --register-kid 0 \
-  --aircraft-eph-pub a1b2c3...
-```
-
-Once registered you should see `CORRELATED` log lines in the ATC terminal.
-
-### 7. Run the test suite
+### 8. Run the test suite
 
 ```bash
 pytest -v
 ```
 
-Expected output: **56 passed**.
+Expected output: **66 passed**.
 
 ## CAT240 wire format (46 bytes, big-endian)
 

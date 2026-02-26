@@ -6,12 +6,21 @@ CLI entry point: ``seald-aircraft``
 Usage::
 
     seald-aircraft --callsign BAW123 --icao24 3C4A6B \\
-                   --atc-pubkey atc_pub.bin \\
+                   --atc-pubkey atc_key.bin \\
+                   [--eph-keypair aircraft_key.bin] \\
                    [--cat021-port 30021] [--cat240-port 30240] \\
                    [--host 127.0.0.1] [--kid 0] [--rate-hz 1.0]
 
-The ATC public key file must contain exactly 32 raw bytes (X25519 public key).
-Generate it once with ``seald-atc --gen-keypair``.
+    # Print the aircraft ephemeral public key and exit (no other args needed):
+    seald-aircraft --print-eph-pub [--eph-keypair aircraft_key.bin]
+
+The ATC public key file may contain either 32 raw bytes (X25519 public key
+only) or 64 raw bytes (full keypair: private || public — as written by
+``seald-atc --gen-keypair``).
+
+The aircraft ephemeral keypair is persisted in ``aircraft_key.bin`` (64 raw
+bytes: private || public) so that the same public key is used across restarts.
+Generate it once and register it with ``seald-atc --register-kid``.
 """
 
 import argparse
@@ -87,9 +96,13 @@ def build_parser() -> argparse.ArgumentParser:
         prog="seald-aircraft",
         description="SEALD EXE#04 — Aircraft simulator: sends CAT021-stub + CAT240 at 1 Hz.",
     )
-    p.add_argument("--callsign",    required=True,          help="8-char callsign (e.g. BAW123)")
-    p.add_argument("--icao24",      required=True,          help="6-hex-digit ICAO24 address (e.g. 3C4A6B)")
-    p.add_argument("--atc-pubkey",  required=True,          help="Path to ATC X25519 raw public-key file (32 bytes)")
+    p.add_argument("--callsign",    required=False,         help="8-char callsign (e.g. BAW123)")
+    p.add_argument("--icao24",      required=False,         help="6-hex-digit ICAO24 address (e.g. 3C4A6B)")
+    p.add_argument("--atc-pubkey",  required=False,         help="Path to ATC X25519 raw public-key file (32 bytes)")
+    p.add_argument("--eph-keypair", default="aircraft_key.bin",
+                   help="Path to aircraft X25519 raw keypair file (64 bytes, created if absent; default: aircraft_key.bin)")
+    p.add_argument("--print-eph-pub", action="store_true",
+                   help="Print hex-encoded aircraft ephemeral public key and exit")
     p.add_argument("--host",        default="127.0.0.1",    help="Destination host (default: 127.0.0.1)")
     p.add_argument("--cat021-port", type=int, default=30021, help="CAT021-stub destination port (default: 30021)")
     p.add_argument("--cat240-port", type=int, default=30240, help="CAT240 destination port (default: 30240)")
@@ -108,6 +121,22 @@ def main() -> None:
         format="%(asctime)s %(levelname)-8s %(name)s: %(message)s",
     )
 
+    # Load or generate the aircraft ephemeral keypair
+    eph_priv, eph_pub = crypto.load_or_create_keypair(args.eph_keypair)
+
+    # --print-eph-pub: print hex public key and exit (no other args required)
+    if args.print_eph_pub:
+        print(eph_pub.hex())
+        return
+
+    # Normal run requires callsign, icao24, and atc-pubkey
+    if not args.callsign:
+        raise SystemExit("--callsign is required when not using --print-eph-pub")
+    if not args.icao24:
+        raise SystemExit("--icao24 is required when not using --print-eph-pub")
+    if not args.atc_pubkey:
+        raise SystemExit("--atc-pubkey is required when not using --print-eph-pub")
+
     # Parse ICAO24
     icao24 = bytes.fromhex(args.icao24.lstrip("0x"))
     if len(icao24) != 3:
@@ -120,11 +149,11 @@ def main() -> None:
             atc_pub = fh.read()
     except OSError as exc:
         raise SystemExit(f"Cannot read ATC public-key file {atc_pub_path!r}: {exc}") from exc
-    if len(atc_pub) != 32:
-        raise SystemExit(f"ATC public key must be 32 bytes, got {len(atc_pub)}")
+    if len(atc_pub) not in (32, 64):
+        raise SystemExit(f"ATC public key file must be 32 or 64 bytes, got {len(atc_pub)}")
+    # Support both raw-pubkey (32 B) and full keypair (64 B: private || public) files
+    atc_pub = atc_pub if len(atc_pub) == 32 else atc_pub[32:]
 
-    # Generate ephemeral keypair for this session
-    eph_priv, eph_pub = crypto.generate_keypair()
     sym_key = crypto.derive_shared_key(eph_priv, atc_pub, kid=args.kid)
     log.info("Ephemeral public key (share with ATC if needed): %s", eph_pub.hex())
     log.info(
