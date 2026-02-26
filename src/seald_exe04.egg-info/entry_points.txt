@@ -1,3 +1,0 @@
-[console_scripts]
-seald-aircraft = seald_exe04.aircraft_sim:main
-seald-atc = seald_exe04.atc_node:main
