@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "seald-exe04"
+version = "0.1.0"
+description = "SEALD EXE#04 TRL2 validation lab — UDP two-stream simulation (CAT021-stub + CAT240)"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+dependencies = [
+    "cryptography>=41.0",
+]
+
+[project.scripts]
+seald-aircraft = "seald_exe04.aircraft_sim:main"
+seald-atc      = "seald_exe04.atc_node:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
