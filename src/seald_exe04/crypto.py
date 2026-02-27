@@ -24,9 +24,14 @@ Usage pattern (aircraft → ATC):
   plaintext2 = decrypt(atc_key, nonce, ct_tag, aad)
 """
 
+import logging
 import os
 import struct
 from typing import Optional
+
+log = logging.getLogger(__name__)
+
+_KEYPAIR_LEN = 64  # 32 B private + 32 B public
 
 from cryptography.hazmat.primitives.asymmetric.x25519 import (
     X25519PrivateKey,
@@ -71,6 +76,36 @@ def public_key_from_private(private_key_bytes: bytes) -> bytes:
         encoding=serialization.Encoding.Raw,
         format=serialization.PublicFormat.Raw,
     )
+
+
+def load_or_create_keypair(path: str) -> tuple[bytes, bytes]:
+    """Load a raw X25519 keypair from *path*, or generate and save one if absent.
+
+    File format: ``private_key (32 B) || public_key (32 B)`` = 64 bytes.
+
+    Returns:
+        ``(private_key_bytes, public_key_bytes)`` — each 32 bytes.
+
+    Raises:
+        ValueError: if the file exists but has the wrong size.
+        OSError:    if the file cannot be read or written.
+    """
+    if os.path.exists(path):
+        with open(path, "rb") as fh:
+            data = fh.read()
+        if len(data) != _KEYPAIR_LEN:
+            raise ValueError(
+                f"Keypair file {path!r} must be {_KEYPAIR_LEN} bytes, got {len(data)}"
+            )
+        priv, pub = data[:32], data[32:]
+        log.debug("Loaded keypair from %s  pub=%s", path, pub.hex())
+        return priv, pub
+    else:
+        priv, pub = generate_keypair()
+        with open(path, "wb") as fh:
+            fh.write(priv + pub)
+        log.debug("Generated new keypair → %s  pub=%s", path, pub.hex())
+        return priv, pub
 
 
 # ---------------------------------------------------------------------------
