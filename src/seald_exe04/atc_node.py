@@ -174,6 +174,11 @@ class KeyStore:
         with self._lock:
             return self._keys.get(kid)
 
+    def deregister(self, kid: int) -> None:
+        """Remove the symmetric key for *kid* (deprecate the key)."""
+        with self._lock:
+            self._keys.pop(kid, None)
+
 
 # ---------------------------------------------------------------------------
 # Metrics
